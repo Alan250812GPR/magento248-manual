@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # Nginx Web Server
+  nginx:
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./src:/var/www/html:delegated # Monta el código de Magento aquí
+      - ./nginx/ssl:/etc/nginx/ssl:ro # Para SSL/HTTPS local
+    depends_on:
+      - php-fpm
+    environment:
+      NGINX_HOST: localhost # Puedes cambiarlo a magento.test si configuras tu /etc/hosts
+      NGINX_PORT: 80
+
+  # PHP-FPM Service
+  php-fpm:
+    build:
+      context: ./php-fpm # Ruta al Dockerfile de PHP-FPM
+      dockerfile: Dockerfile
+      args:
+        PHP_VERSION: "8.2" # Ajusta si necesitas otra version de PHP compatible con 2.4.8
+        MAGENTO_VERSION: "2.4.8" # Solo para referencia en el Dockerfile, no se usa directamente en PHP
+    volumes:
+      - ./src:/var/www/html:delegated
+      - ./php-fpm/php.ini:/usr/local/etc/php/conf.d/custom.ini:ro
+    environment:
+      COMPOSER_AUTH: ${COMPOSER_AUTH:-null} # Para Composer
+    depends_on:
+      - db
+      - redis
+      - elasticsearch
+
+  # Database Service (MariaDB)
+  db:
+    image: mariadb:10.6 # Compatible con Magento 2.4.8
+    volumes:
+      - db_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root # ¡Cambia esto para producción!
+      MYSQL_DATABASE: magento # Nombre de la base de datos
+      MYSQL_USER: magento
+      MYSQL_PASSWORD: magento
+
+  # Elasticsearch (OpenSearch es el reemplazo de facto en Docker para M2.4.x)
+  elasticsearch:
+    image: opensearchproject/opensearch:1.3.13 # Versión compatible con Magento 2.4.8
+    environment:
+      - discovery.type=single-node
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # Ajusta si necesitas más RAM
+    volumes:
+      - es_data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9600:9600" # Para HTTP
+
+  # Redis Service
+  redis:
+    image: redis:6.0-alpine # Versión compatible con Magento 2.4.8
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  # Optional: PHPMyAdmin (para gestionar la base de datos)
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: root # La misma contraseña que en el servicio 'db'
+    ports:
+      - "8080:80" # Accede a phpMyAdmin en http://localhost:8080
+    depends_on:
+      - db
+
+volumes:
+  db_data:
+  es_data:
+  redis_data:
